@@ -253,7 +253,7 @@ def main():
         PolicyGradient(
             state_size=state_size,
             action_size=action_size,
-            mode=args.mode,
+            mode=args.mode, # default 'REINFORCE'
             n=args.n,
             device='cuda' if torch.cuda.is_available() else 'cpu'
         )
