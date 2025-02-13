@@ -29,8 +29,7 @@ class ReplayMemory():
     def sample_batch(self):
         # randomly chooses from the collections.deque
         # BEGIN STUDENT SOLUTION
-        # return random.sample(self.memory, self.batch_size)
-        return random.choices(self.memory, k=self.batch_size)
+        return random.sample(self.memory, self.batch_size)
         # END STUDENT SOLUTION
 
 
@@ -154,7 +153,7 @@ class DeepQNetwork(nn.Module):
                     break
         return sum(total_rewards) / len(total_rewards)
 
-    ## TODO: Uniformly sample (with replacement)
+
     def run(self, env, max_steps, num_episodes, train, init_buffer):
         total_rewards = []
 
