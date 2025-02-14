@@ -2,6 +2,7 @@
 
 import argparse
 import random
+import math
 from collections import namedtuple, deque
 
 
@@ -62,7 +63,13 @@ class DeepQNetwork(nn.Module):
 
         self.replay_buffer_batch_size = replay_buffer_batch_size
 
-        hidden_layer_size = 256
+        self.EPS_START = 0.9
+        self.EPS_END = self.epsilon
+        self.EPS_DECAY = 1000
+        self.steps_done = 0
+        self.TAU = 0.005
+
+        hidden_layer_size = 128
 
         # q network
         q_net_init = lambda: nn.Sequential(
@@ -95,7 +102,9 @@ class DeepQNetwork(nn.Module):
         # if stochastic, sample using epsilon greedy, else get the argmax
         # BEGIN STUDENT SOLUTION
         sample = random.random()
-        if not stochastic or sample > self.epsilon:
+        eps_threshold = self.EPS_END + (self.EPS_START - self.EPS_END) * \
+            math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        if not stochastic or sample > eps_threshold:
           with torch.no_grad():
             return self.q_net(state).max(1).indices.view(1,1)
         else:
@@ -181,6 +190,7 @@ class DeepQNetwork(nn.Module):
             total_reward = 0
             for t in count():
               action = self.get_action(state, True)
+              self.steps_done += 1
               observation, reward, terminated, truncated, _ = env.step(action.item())
               reward = torch.tensor([reward], device=self.device)
               done = terminated or truncated
@@ -190,10 +200,13 @@ class DeepQNetwork(nn.Module):
               state = next_state
               self.train()
 
-              if (t+1) % self.target_update == 0:
+              if True or (t+1) % self.target_update == 0:
                 q_net_state_dict = self.q_net.state_dict()
-                self.target.load_state_dict(q_net_state_dict)
-              
+                target_state_dict = self.target.state_dict()
+                for key in q_net_state_dict:
+                  target_state_dict[key] = q_net_state_dict[key]*self.TAU + target_state_dict[key]*(1-self.TAU)
+                self.target.load_state_dict(target_state_dict)
+            
               if done:
                 break
               
@@ -255,6 +268,8 @@ def parse_args():
     parser.add_argument('--num_episodes', type=int, default=1000, help='Number of episodes to train for')
     parser.add_argument('--max_steps', type=int, default=200, help='Maximum number of steps in the environment')
     parser.add_argument('--env_name', type=str, default='CartPole-v1', help='Environment name')
+    parser.add_argument('--lr_q_net', type=float, default=1e-4, help='Learning Rate')
+    parser.add_argument('--replay_buffer_batch_size', type=int, default=128, help='Replay Buffer Batch Size')
     return parser.parse_args()
 
 
@@ -274,8 +289,8 @@ def main():
           "cpu"
     )
     print("device: ",device)
-    agents = [DeepQNetwork(state_size=n_observations, action_size=n_actions, device=device) for _ in range(0, args.num_runs)]
-    graph_agents("DQN", agents, env, args.max_steps, args.num_episodes)
+    agents = [DeepQNetwork(state_size=n_observations, action_size=n_actions, device=device, lr_q_net=args.lr_q_net, replay_buffer_batch_size=args.replay_buffer_batch_size) for _ in range(0, args.num_runs)]
+    graph_agents("2.2", agents, env, args.max_steps, args.num_episodes)
     # END STUDENT SOLUTION
 
 
