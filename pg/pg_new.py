@@ -141,10 +141,6 @@ class PolicyGradient(nn.Module):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
-
         return actor_loss.item(), critic_loss.item()
         # END STUDENT SOLUTION
 
