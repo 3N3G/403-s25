@@ -89,8 +89,7 @@ class PolicyGradient(nn.Module):
                 for k in range(t, end_t):
                     G_t += (self.gamma ** (k - t)) * rewards_tensor[k]
 
-                if t + self.n < T:
-                    G_t += (self.gamma ** self.n) * V_end
+                G_t += (self.gamma ** self.n) * V_end
 
                 returns[t] = G_t
         else:
@@ -138,8 +137,12 @@ class PolicyGradient(nn.Module):
         critic_loss = torch.mean((returns - values) ** 2)
 
         self.actor_optimizer.zero_grad()
-        actor_loss.backward()
+        actor_loss.backward(retain_graph=True)
         self.actor_optimizer.step()
+
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
 
         return actor_loss.item(), critic_loss.item()
         # END STUDENT SOLUTION
