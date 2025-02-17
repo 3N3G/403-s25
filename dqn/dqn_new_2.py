@@ -142,7 +142,7 @@ class DeepQNetwork(nn.Module):
         self.optimizer.step()
         # END STUDENT SOLUTION
 
-    def test(self, env, max_steps=200, num_episodes=20):
+    def test(self, env, max_steps=500, num_episodes=20):
         total_rewards = []
         for _ in range(num_episodes):
             state, _ = env.reset()
