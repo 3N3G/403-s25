@@ -43,6 +43,9 @@ class ReplayMemory():
         # BEGIN STUDENT SOLUTION
         self.memory.append(transition)
         # END STUDENT SOLUTION
+    
+    def __len__(self):
+        return len(self.memory) 
 
 
 
@@ -77,10 +80,10 @@ class DeepQNetwork(nn.Module):
         # initialize replay buffer, networks, optimizer, move networks to device
         # BEGIN STUDENT SOLUTION
         self.replay_buffer = ReplayMemory(replay_buffer_size, replay_buffer_batch_size)
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr_q_net)
         self.q_net = q_net_init().to(device)
         self.target = q_net_init().to(device)
         self.target.load_state_dict(self.q_net.state_dict())
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr_q_net)
         # END STUDENT SOLUTION
 
 
@@ -213,7 +216,7 @@ def graph_agents(graph_name, agents, env, max_steps, num_episodes):
     ax.set_title(graph_name, fontsize=10)
     ax.set_xlabel('Episode')
     ax.set_ylabel('Average Total Reward')
-    fig.savefig(f'./graphs/{graph_name}.png')
+    fig.savefig(f'./{graph_name}.png')
     plt.close(fig)
     print(f'Finished: {graph_name}')
 
