@@ -45,7 +45,7 @@ class ReplayMemory():
     
 
 class DeepQNetwork(nn.Module):
-    def __init__(self, state_size, action_size, lr_q_net=2e-4, gamma=0.99, epsilon=0.05, target_update=50, burn_in=10000, replay_buffer_size=50000, replay_buffer_batch_size=32, device='cpu'):
+    def __init__(self, state_size, action_size, lr_q_net=1e-4, gamma=0.99, epsilon=0.05, target_update=50, burn_in=10000, replay_buffer_size=50000, replay_buffer_batch_size=128, device='cpu'):
         super(DeepQNetwork, self).__init__()
 
         # define init params
@@ -84,13 +84,11 @@ class DeepQNetwork(nn.Module):
 
         # initialize replay buffer, networks, optimizer, move networks to device
         # BEGIN STUDENT SOLUTION
-        self.memory = ReplayMemory(replay_buffer_size, replay_buffer_batch_size)
-        self.q_net = q_net_init()
-        self.target = q_net_init()
+        self.memory = ReplayMemory(replay_buffer_size, self.replay_buffer_batch_size)
+        self.q_net = q_net_init().to(self.device)
+        self.target = q_net_init().to(self.device)
         self.target.load_state_dict(self.q_net.state_dict())
         self.optimizer = optim.AdamW(self.q_net.parameters(), lr=lr_q_net, amsgrad=True)
-        self.q_net = self.q_net.to(self.device)
-        self.target = self.target.to(self.device)
         # END STUDENT SOLUTION
 
 
@@ -98,7 +96,7 @@ class DeepQNetwork(nn.Module):
         return(self.q_net(state), self.target(state))
 
 
-    def get_action(self, state, stochastic):
+    def get_action(self, env, state, stochastic):
         # if stochastic, sample using epsilon greedy, else get the argmax
         # BEGIN STUDENT SOLUTION
         sample = random.random()
@@ -108,7 +106,7 @@ class DeepQNetwork(nn.Module):
           with torch.no_grad():
             return self.q_net(state).max(1).indices.view(1,1)
         else:
-            return torch.tensor([[random.choice([0, 1])]], device=self.device, dtype=torch.long)
+            return torch.tensor([[env.action_space.sample()]], device=self.device, dtype=torch.long)
         # END STUDENT SOLUTION
 
 
@@ -151,11 +149,14 @@ class DeepQNetwork(nn.Module):
             state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             total_reward = 0
             for t in count():
-                action = self.get_action(state, False)
+                action = self.get_action(env, state, False)
                 observation, reward, terminated, truncated, _ = env.step(action.item())
                 done = terminated or truncated
                 total_reward += reward
-                next_state = None if done else torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+                if terminated:
+                  next_state = None
+                else:
+                  next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
                 state = next_state
                 if done:
                     total_rewards.append(total_reward)
@@ -178,7 +179,10 @@ class DeepQNetwork(nn.Module):
               observation, reward, terminated, truncated, _ = env.step(action.item())
               reward = torch.tensor([reward], device=self.device)
               done = terminated or truncated
-              next_state = None if done else torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+              if terminated:
+                  next_state = None
+              else:
+                next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
               self.memory.append((state, action, next_state, reward))
               state = next_state
               if done:
@@ -189,23 +193,25 @@ class DeepQNetwork(nn.Module):
             state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             total_reward = 0
             for t in count():
-              action = self.get_action(state, True)
+              action = self.get_action(env, state, True)
               self.steps_done += 1
               observation, reward, terminated, truncated, _ = env.step(action.item())
               reward = torch.tensor([reward], device=self.device)
               done = terminated or truncated
               total_reward += reward
-              next_state = None if done else torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+              if terminated:
+                  next_state = None
+              else:
+                next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
               self.memory.append((state, action, next_state, reward))
               state = next_state
               self.train()
 
-              if True or (t+1) % self.target_update == 0:
-                q_net_state_dict = self.q_net.state_dict()
-                target_state_dict = self.target.state_dict()
-                for key in q_net_state_dict:
-                  target_state_dict[key] = q_net_state_dict[key]*self.TAU + target_state_dict[key]*(1-self.TAU)
-                self.target.load_state_dict(target_state_dict)
+              q_net_state_dict = self.q_net.state_dict()
+              target_state_dict = self.target.state_dict()
+              for key in q_net_state_dict:
+                target_state_dict[key] = q_net_state_dict[key]*self.TAU + target_state_dict[key]*(1-self.TAU)
+              self.target.load_state_dict(target_state_dict)
             
               if done:
                 break
@@ -266,7 +272,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train an agent.')
     parser.add_argument('--num_runs', type=int, default=5, help='Number of runs to average over for graph')
     parser.add_argument('--num_episodes', type=int, default=1000, help='Number of episodes to train for')
-    parser.add_argument('--max_steps', type=int, default=200, help='Maximum number of steps in the environment')
+    parser.add_argument('--max_steps', type=int, default=500, help='Maximum number of steps in the environment')
     parser.add_argument('--env_name', type=str, default='CartPole-v1', help='Environment name')
     parser.add_argument('--lr_q_net', type=float, default=1e-4, help='Learning Rate')
     parser.add_argument('--replay_buffer_batch_size', type=int, default=128, help='Replay Buffer Batch Size')
@@ -279,7 +285,7 @@ def main():
 
     # init args, agents, and call graph_agent on the initialized agents
     # BEGIN STUDENT SOLUTION
-    env = gym.make(args.env_name,max_episode_steps=args.max_steps)
+    env = gym.make(args.env_name)
     n_actions = env.action_space.n
     state, _ = env.reset()
     n_observations = len(state)
@@ -297,8 +303,3 @@ def main():
 
 if '__main__' == __name__:
     main()
-
-
-
-# get action
-# run
