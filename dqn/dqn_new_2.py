@@ -142,7 +142,7 @@ class DeepQNetwork(nn.Module):
         self.optimizer.step()
         # END STUDENT SOLUTION
 
-    def test(self, env, max_steps=500, num_episodes=20):
+    def test(self, env, max_steps=200, num_episodes=20):
         total_rewards = []
         for _ in range(num_episodes):
             state, _ = env.reset()
@@ -180,7 +180,7 @@ class DeepQNetwork(nn.Module):
               reward = torch.tensor([reward], device=self.device)
               done = terminated or truncated
               if terminated:
-                  next_state = None
+                next_state = None
               else:
                 next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
               self.memory.append((state, action, next_state, reward))
@@ -200,7 +200,7 @@ class DeepQNetwork(nn.Module):
               done = terminated or truncated
               total_reward += reward
               if terminated:
-                  next_state = None
+                next_state = None
               else:
                 next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
               self.memory.append((state, action, next_state, reward))
@@ -272,7 +272,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train an agent.')
     parser.add_argument('--num_runs', type=int, default=5, help='Number of runs to average over for graph')
     parser.add_argument('--num_episodes', type=int, default=1000, help='Number of episodes to train for')
-    parser.add_argument('--max_steps', type=int, default=500, help='Maximum number of steps in the environment')
+    parser.add_argument('--max_steps', type=int, default=200, help='Maximum number of steps in the environment')
     parser.add_argument('--env_name', type=str, default='CartPole-v1', help='Environment name')
     parser.add_argument('--lr_q_net', type=float, default=1e-4, help='Learning Rate')
     parser.add_argument('--replay_buffer_batch_size', type=int, default=128, help='Replay Buffer Batch Size')
@@ -285,7 +285,7 @@ def main():
 
     # init args, agents, and call graph_agent on the initialized agents
     # BEGIN STUDENT SOLUTION
-    env = gym.make(args.env_name)
+    env = gym.make(args.env_name, max_episode_steps=args.max_steps)
     n_actions = env.action_space.n
     state, _ = env.reset()
     n_observations = len(state)
