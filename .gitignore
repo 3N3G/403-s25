@@ -1,0 +1,15 @@
+.DS_Store
+
+
+data/actions_BC.pkl
+
+data/states_BC.pkl
+
+data/2.1_bc_results
+
+data/2.2_dagger_results
+
+/venv
+
+data/actions_diffusion_policy.pkl
+data/states_diffusion_policy.pkl
