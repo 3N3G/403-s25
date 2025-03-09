@@ -8,6 +8,7 @@ from modules import PolicyNet, ValueNet
 from simple_network import SimpleNet
 from tqdm import tqdm
 import pickle
+from PIL import Image
 import matplotlib.pyplot as plt
 
 try:
@@ -122,10 +123,31 @@ class TrainDaggerBC:
         NOTE: you should update self.states, self.actions, and self.timesteps in this function.
         """
         # BEGIN STUDENT SOLUTION
-
+        new_states = []
+        new_actions = []
+        new_timesteps = []
+        rewards_all = []
+        for _ in range(num_trajectories_per_batch_collection):
+            states, _, timesteps, rewards = self.generate_trajectory(self.env, self.model)
+            rewards_all.append(sum(rewards))
+            expert_actions = []
+            for state in states:
+                expert_actions.append(self.call_expert_policy(state))
+            new_states.extend(states)
+            new_actions.extend(expert_actions)
+            new_timesteps.extend(timesteps)
+        
+        if self.states is None:
+            self.states = np.array(new_states)
+            self.actions = np.array(new_actions)
+            self.timesteps = np.array(new_timesteps)
+        else:
+            self.states = np.concatenate([self.states, np.array(new_states)], axis=0)
+            self.actions = np.concatenate([self.actions, np.array(new_actions)], axis=0)
+            self.timesteps = np.concatenate([self.timesteps,  np.array(new_timesteps)], axis=0)
         # END STUDENT SOLUTION
 
-        return rewards
+        return rewards_all
 
     def generate_trajectories(self, num_trajectories_per_batch_collection=20):
         """
@@ -136,8 +158,11 @@ class TrainDaggerBC:
         
         NOTE: you will need to call self.generate_trajectory in this function.
         """
+        rewards = []
         # BEGIN STUDENT SOLUTION
-
+        for _ in range(num_trajectories_per_batch_collection):
+            _, _, _, total_reward = self.generate_trajectory(self.env, self.model)
+            rewards.append(sum(total_reward))
         # END STUDENT SOLUTION
 
         return rewards
@@ -172,9 +197,47 @@ class TrainDaggerBC:
 
         # BEGIN STUDENT SOLUTION
 
+        losses = []
+        rewards_list = []
+
+        if self.mode == 'BC':
+            for step in range(num_BC_training_steps):
+                loss = self.training_step(batch_size)
+                losses.append(loss)
+            
+                if (step+1) % print_every == 0:
+                    print(f"Step {step+1}/{num_BC_training_steps} - Loss: {loss:.4f}")
+                
+                if (step+1) % 1000 == 0:
+                    rewards = self.generate_trajectories(num_trajectories_per_batch_collection)
+                    avg_reward = np.mean(rewards)
+                    median_reward = np.median(rewards)
+                    max_reward = np.max(rewards)
+                    rewards_list.append((step+1, avg_reward, median_reward, max_reward))
+                    print(f"At step {step+1}: Avg={avg_reward:.2f} Median={median_reward:.2f} Max={max_reward:.2f}")
+                
+                if (step+1) % save_every == 0 and step > 0:
+                    torch.save(self.model.state_dict(), f"bc_model_step_{step+1}.pt")
+        elif self.mode == 'DAgger':
+            for batch in range(num_batch_collection_steps):
+                rewards = self.update_training_data(num_trajectories_per_batch_collection)
+                for step in range(num_training_steps_per_batch_collection):
+                    loss = self.training_step(batch_size)
+                    losses.append(loss)
+                    if (step+1) % print_every == 0:
+                        print(f"Batch {batch+1}, Step {step+1}/{num_training_steps_per_batch_collection} - Loss: {loss:.4f}")
+                avg_reward = np.mean(rewards)
+                median_reward = np.median(rewards)
+                max_reward = np.max(rewards)
+                rewards_list.append((batch+1, avg_reward, median_reward, max_reward))
+                print(f"At batch {batch+1}: Avg={avg_reward:.2f} Median={median_reward:.2f} Max={max_reward:.2f}")
+                
+                if (batch+1) % 5 == 0 and batch > 0:
+                    torch.save(self.model.state_dict(), f"dagger_model_step_{batch+1}.pt")
+
         # END STUDENT SOLUTION
 
-        return losses
+        return losses, rewards_list
 
     def training_step(self, batch_size):
         """
@@ -214,20 +277,101 @@ class TrainDaggerBC:
         
         return states, actions, timesteps
 
+def save_losses_plot(losses, save_path="training_loss.png"):
+    # Save the loss plot
+    plt.figure()
+    plt.plot(losses, label="Training Loss")
+    plt.xlabel("Training Steps")
+    plt.ylabel("Loss")
+    plt.title("Behavior Cloning Training Loss Curve")
+    plt.legend()
+    plt.savefig(save_path)  # Save as a PNG file
+    plt.close()
+
+def save_trainig_reward_plot(rewards_list, save_path="training_rewards_plot.png"):
+    steps = [entry[0] for entry in rewards_list]
+    avg_rewards = [entry[1] for entry in rewards_list]
+    median_rewards = [entry[2] for entry in rewards_list]
+    max_rewards = [entry[3] for entry in rewards_list]
+    plt.figure()
+    plt.plot(steps, avg_rewards, label="Average Reward", marker="o")
+    plt.plot(steps, median_rewards, label="Median Reward", marker="s")
+    plt.plot(steps, max_rewards, label="Max Reward", marker="^")
+    plt.xlabel("Training Steps")
+    plt.ylabel("Reward")
+    plt.title("Training Reward Progression")
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+    
+def generate_failure_gif(model, env, save_path="gifs_imitation.gif"):
+    obs, _ = env.reset()
+    frames = []
+    total_reward = 0
+    done = False
+    timestep = 0
+    while not done:
+        frame = env.render()
+        frames.append(Image.fromarray(frame))
+        obs_tensor = torch.tensor(obs, dtype=torch.float32, device=model.device).unsqueeze(0)
+        timestep_tensor = torch.tensor([timestep], dtype=torch.long, device=model.device)
+        action = model(obs_tensor, timestep_tensor).detach().cpu().numpy().squeeze()
+        obs, reward, done, _, _ = env.step(action)
+        total_reward += reward
+        timestep += 1
+    
+    if total_reward < 0 and len(frames) > 1:
+        frames[0].save(save_path, save_all=True, append_images=frames[1:], duration=40, loop=0)
+        print(f"Failure run GIF saved at: {save_path}")
+    else:
+        print("No failure run detected. GIF not saved")
+
+
+def generate_success_gif(model, env, save_path="gifs_imitation.gif"):
+    obs, _ = env.reset()
+    frames = []
+    total_reward = 0
+    done = False
+    timestep = 0
+    while not done:
+        frame = env.render()
+        frames.append(Image.fromarray(frame))
+        obs_tensor = torch.tensor(obs, dtype=torch.float32, device=model.device).unsqueeze(0)
+        timestep_tensor = torch.tensor([timestep], dtype=torch.long, device=model.device)
+        action = model(obs_tensor, timestep_tensor).detach().cpu().numpy().squeeze()
+        obs, reward, done, _, _ = env.step(action)
+        total_reward += reward
+        timestep += 1
+    
+    if total_reward > 260 and len(frames) > 1:
+        frames[0].save(save_path, save_all=True, append_images=frames[1:], duration=40, loop=0)
+        print(f"Success run GIF saved at: {save_path}")
+    else:
+        print(f"total_reward: {total_reward}, frames: {len(frames)}")
+        print("No success run detected. GIF not saved")
+
 def run_training():
     """
     Simple Run Training Function
     """
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else
+        "mps" if torch.backends.mps.is_available() else
+        "cpu"
+    )
+    print("device: ", device)
 
-    env = gym.make('BipedalWalker-v3') # , render_mode="rgb_array"
+    env = gym.make('BipedalWalker-v3', render_mode="rgb_array")
+    mode="DAgger"
 
     model_name = "super_expert_PPO_model"
     expert_model = PolicyNet(24, 4)
-    model_weights = torch.load(f"data/models/{model_name}.pt")
+    model_weights = torch.load(f"data/models/{model_name}.pt", map_location=device)
     expert_model.load_state_dict(model_weights["PolicyNet"])
 
-    states_path = "your_path_here"
-    actions_path = "your_path_here"
+    states_path = "data/states_BC.pkl"
+    actions_path = "data/actions_BC.pkl"
 
     with open(states_path, "rb") as f:
         states = pickle.load(f)
@@ -235,7 +379,29 @@ def run_training():
         actions = pickle.load(f)
 
     # BEGIN STUDENT SOLUTION
+    
+    model = SimpleNet(
+        state_dim=24,
+        action_dim=4,
+        hidden_layer_dimension=128,
+        max_episode_length=1600,
+        device=device
+    )
+    optimizer = torch.optim.AdamW(model.parameters(), lr= 0.0001, weight_decay= 0.0001)
+    if mode == "BC":
+        trainer = TrainDaggerBC(env=env, model=model, expert_model=expert_model, optimizer=optimizer, states=states, actions=actions, device=device, mode=mode)
+        losses, rewards_list = trainer.train(num_batch_collection_steps=0)
+    elif mode == "DAgger":
+        trainer = TrainDaggerBC(env=env, model=model, expert_model=expert_model, optimizer=optimizer, states=states, actions=actions, device=device, mode=mode)
+        losses, rewards_list = trainer.train(num_batch_collection_steps=20, batch_size=128)
 
+    save_losses_plot(losses)
+    save_trainig_reward_plot(rewards_list)
+
+    if mode == "BC":
+        generate_failure_gif(model, env, save_path="gifs_imitation.gif")
+    elif mode == "DAgger":
+        generate_success_gif(model, env, save_path="gifs_DAgger.gif")
     # END STUDENT SOLUTION
 
 if __name__ == "__main__":

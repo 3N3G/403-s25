@@ -2,7 +2,7 @@ gymnasium==0.29.1
 gymnasium[box2d]
 matplotlib==3.7.1
 torch>=2.0.1
-numpy
+numpy==1.26.4
 tqdm
 pillow
 diffusers
